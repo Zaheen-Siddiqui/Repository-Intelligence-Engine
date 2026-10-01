@@ -12,12 +12,28 @@ from uuid import UUID
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 
+ANALYTICS_KEYS = (
+    "architecture",
+    "apis",
+    "database",
+    "dependencies",
+    "git",
+    "security",
+    "performance",
+    "tech_debt",
+)
+
+
 # ── Repository ─────────────────────────────────────────────
 
 
 class RepositoryCreate(BaseModel):
     github_url: str = Field(..., description="GitHub repository URL or local directory to analyze")
     project_name: Optional[str] = Field(None, description="Optional project name")
+    analytics: List[str] = Field(
+        default_factory=lambda: list(ANALYTICS_KEYS),
+        description="Analysis modules to run for this repository",
+    )
 
     @field_validator("github_url")
     @classmethod
@@ -30,6 +46,17 @@ class RepositoryCreate(BaseModel):
         if "\x00" in val:
             raise ValueError("Null bytes are prohibited")
         return val
+
+    @field_validator("analytics")
+    @classmethod
+    def validate_analytics(cls, values: List[str]) -> List[str]:
+        selected = list(dict.fromkeys(values))
+        invalid = [value for value in selected if value not in ANALYTICS_KEYS]
+        if invalid:
+            raise ValueError(f"Unsupported analytics: {', '.join(invalid)}")
+        if not selected:
+            raise ValueError("Select at least one analytics module")
+        return selected
 
 
 class RepositoryResponse(BaseModel):

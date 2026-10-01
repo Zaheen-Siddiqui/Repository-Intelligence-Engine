@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -40,6 +40,7 @@ import {
   MessageSquare,
   ZoomIn,
   ZoomOut,
+  Download,
   Layout,
   Component,
   Network,
@@ -50,6 +51,7 @@ import DataShell from '../components/DataShell';
 import { useCurrentRepoId, useApi } from '../hooks/useRepository';
 import type { ArchitectureResponse } from '../types/api';
 import { repositoryApi } from '../lib/api';
+import { exportElementAsPng } from '../lib/exportImage';
 
 // Map icon string to Lucide component
 function getSubsystemIcon(iconName: string, className = 'w-4 h-4') {
@@ -249,6 +251,7 @@ function FlowCanvas({
   motionEnabled,
 }: CanvasProps) {
   const { fitView, zoomIn, zoomOut } = useReactFlow();
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   const nodeTypes = useMemo(
     () => ({
@@ -265,6 +268,12 @@ function FlowCanvas({
     }));
   }, [edges, motionEnabled]);
 
+  const handleExport = async () => {
+    if (canvasRef.current) {
+      await exportElementAsPng(canvasRef.current, 'architecture-graph.png');
+    }
+  };
+
   // Smooth fitView on initial node load
   useEffect(() => {
     if (nodes.length > 0) {
@@ -276,9 +285,16 @@ function FlowCanvas({
   }, [nodes.length, fitView]);
 
   return (
-    <div className="relative w-full h-[640px] rounded-2xl overflow-hidden border border-white/[0.08] bg-[#070b12]">
+    <div ref={canvasRef} className="relative w-full h-[640px] rounded-2xl overflow-hidden border border-white/[0.08] bg-[#070b12]">
       {/* Floating Canvas Quick Controls */}
-      <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 p-1.5 rounded-xl bg-slate-900/80 backdrop-blur-md border border-white/[0.08] shadow-lg">
+      <div data-export-exclude="true" className="absolute top-4 right-4 z-10 flex items-center gap-1.5 p-1.5 rounded-xl bg-slate-900/80 backdrop-blur-md border border-white/[0.08] shadow-lg">
+        <button
+          onClick={() => void handleExport()}
+          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors"
+          title="Save graph as PNG"
+        >
+          <Download className="w-4 h-4" />
+        </button>
         <button
           onClick={() => zoomIn({ duration: 300 })}
           className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors"

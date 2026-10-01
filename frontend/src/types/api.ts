@@ -33,7 +33,18 @@ export interface RepositoryListResponse {
 export interface RepositoryCreateRequest {
   github_url: string;
   project_name?: string;
+  analytics?: AnalyticsKey[];
 }
+
+export type AnalyticsKey =
+  | 'architecture'
+  | 'apis'
+  | 'database'
+  | 'dependencies'
+  | 'git'
+  | 'security'
+  | 'performance'
+  | 'tech_debt';
 
 // ── Scan Job ───────────────────────────────────────────────
 

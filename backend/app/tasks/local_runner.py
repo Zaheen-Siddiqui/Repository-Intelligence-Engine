@@ -298,7 +298,12 @@ async def _publish_progress(
         log.warning("ws_broadcast_failed", error=str(e))
 
 
-async def run_pipeline_async(repo_id: str, scan_job_id: str, target: str):
+async def run_pipeline_async(
+    repo_id: str,
+    scan_job_id: str,
+    target: str,
+    analytics: list[str] | None = None,
+):
     """
     Asynchronous in-process scan pipeline.
     Executes directly in the desktop backend without external workers.
@@ -341,22 +346,22 @@ async def run_pipeline_async(repo_id: str, scan_job_id: str, target: str):
             resolved = validate_safe_local_directory(target_path)
             repo_path = resolved
             name = resolved.name
-            files = enumerate_files(repo_path)
-            default_branch = detect_default_branch(repo_path)
+            files = await asyncio.to_thread(enumerate_files, repo_path)
+            default_branch = await asyncio.to_thread(detect_default_branch, repo_path)
             await _publish_progress(repo_id, scan_job_id, "cloning", "clone", 15.0, f"Opened local folder: {len(files)} files found")
         else:
             await _publish_progress(repo_id, scan_job_id, "cloning", "clone", 10.0, "Cloning remote repository...")
-            repo_path = clone_repo(target_str, repo_id)
-            name = extract_repo_name(target_str)
-            files = enumerate_files(repo_path)
-            default_branch = detect_default_branch(repo_path)
+            repo_path = await asyncio.to_thread(clone_repo, target_str, repo_id)
+            name = await asyncio.to_thread(extract_repo_name, target_str)
+            files = await asyncio.to_thread(enumerate_files, repo_path)
+            default_branch = await asyncio.to_thread(detect_default_branch, repo_path)
             await _publish_progress(repo_id, scan_job_id, "cloning", "clone", 15.0, f"Cloned repository: {len(files)} files")
 
         basenames = {Path(f["path"]).name for f in files}
-        languages = detect_languages(files)
-        frameworks = detect_frameworks(repo_path, files)
-        package_managers = detect_package_managers(basenames)
-        is_monorepo = detect_monorepo(repo_path, basenames)
+        languages = await asyncio.to_thread(detect_languages, files)
+        frameworks = await asyncio.to_thread(detect_frameworks, repo_path, files)
+        package_managers = await asyncio.to_thread(detect_package_managers, basenames)
+        is_monorepo = await asyncio.to_thread(detect_monorepo, repo_path, basenames)
         total_files = len(files)
         total_lines = sum(f["lines"] for f in files)
 
@@ -467,7 +472,8 @@ async def run_pipeline_async(repo_id: str, scan_job_id: str, target: str):
             )
             await session.commit()
 
-        analysis_results = run_all_analyses(
+        analysis_results = await asyncio.to_thread(
+            run_all_analyses,
             repo_id=repo_id,
             repo_path=str(repo_path),
             files=files,
@@ -475,6 +481,7 @@ async def run_pipeline_async(repo_id: str, scan_job_id: str, target: str):
             imports=all_imports,
             calls=all_calls,
             languages=languages,
+            enabled_analytics=analytics,
         )
         analysis_results["graph"] = graph_stats
 

@@ -200,7 +200,11 @@ def enumerate_files(repo_path: Path) -> list[dict]:
             ext = abs_path.suffix.lower()
             language = EXTENSION_LANGUAGE_MAP.get(ext)
 
-            size_bytes = abs_path.stat().st_size
+            try:
+                size_bytes = abs_path.stat().st_size
+            except OSError as exc:
+                log.warning("file_metadata_unavailable", file=str(abs_path), error=str(exc))
+                continue
             lines = 0
             if language and size_bytes < 2_000_000:  # Skip huge files
                 try:

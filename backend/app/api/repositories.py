@@ -39,6 +39,54 @@ router = APIRouter(prefix="/repositories", tags=["repositories"])
 log = get_logger(__name__)
 
 
+def _analytics_enabled(repo: Repository, key: str) -> bool:
+    configured = (repo.metadata_ or {}).get("analytics")
+    return configured is None or key in configured
+
+
+def _parse_repository_files(repo_path: Path, include_symbols: bool = True):
+    """Parse supported source files without blocking FastAPI's event loop."""
+    from app.parsing.registry import parser_registry
+    from app.tasks.clone import enumerate_files
+
+    files = enumerate_files(repo_path)
+    all_symbols = []
+    all_imports = []
+
+    for file_info in files:
+        rel_path = file_info["path"]
+        if not parser_registry.get_parser(rel_path) or file_info.get("size_bytes", 0) > 1_000_000:
+            continue
+        abs_path = repo_path / rel_path
+        try:
+            source = abs_path.read_text(encoding="utf-8", errors="replace")
+            result = parser_registry.parse_file(rel_path, source)
+            if result:
+                if include_symbols:
+                    all_symbols.extend([
+                        {
+                            "name": symbol.name,
+                            "type": symbol.type,
+                            "file_path": symbol.file_path,
+                            "signature": symbol.signature,
+                            "parent": symbol.parent,
+                        }
+                        for symbol in result.symbols
+                    ])
+                all_imports.extend([
+                    {
+                        "module": imported.module,
+                        "name": imported.name,
+                        "file_path": result.file_path,
+                    }
+                    for imported in result.imports
+                ])
+        except Exception:
+            pass
+
+    return files, all_symbols, all_imports
+
+
 # ── Repository CRUD ────────────────────────────────────────
 
 
@@ -60,6 +108,7 @@ async def create_repository(
         repo = Repository(
             github_url=payload.github_url,
             name=name,
+            metadata_={"analytics": payload.analytics},
         )
         db.add(repo)
         await db.flush()
@@ -74,16 +123,19 @@ async def create_repository(
         db.add(scan_job)
         await db.flush()
 
-        # Kick off Local in-process async pipeline
+        await db.commit()
+        await db.refresh(repo)
+
+        # Start scanning only after the request transaction is visible to the
+        # background task's independent database session.
         from app.tasks.local_runner import run_pipeline_async
 
         asyncio.create_task(
-            run_pipeline_async(str(repo.id), str(scan_job.id), payload.github_url)
+            run_pipeline_async(
+                str(repo.id), str(scan_job.id), payload.github_url, payload.analytics
+            )
         )
         log.info("local_pipeline_dispatched", repo_id=str(repo.id))
-
-        await db.commit()
-        await db.refresh(repo)
 
         # Manual serialization to bypass Pydantic validation issues
         return {
@@ -172,31 +224,19 @@ async def get_architecture(repo_id: UUID, db: AsyncSession = Depends(get_db)):
     nodes = diagram.get("nodes", [])
     is_legacy = len(nodes) <= 3 or any(n.get("type") != "componentNode" for n in nodes)
 
-    if (not arch_data or is_legacy) and repo.clone_path and Path(repo.clone_path).exists():
+    if _analytics_enabled(repo, "architecture") and (not arch_data or is_legacy) and repo.clone_path and Path(repo.clone_path).exists():
         try:
             from app.tasks.clone import enumerate_files
-            from app.parsing.registry import parser_registry
             from app.analysis.architecture import analyze_architecture
 
             repo_path = Path(repo.clone_path)
-            files = enumerate_files(repo_path)
-            all_symbols = []
-            all_imports = []
+            files, all_symbols, all_imports = await asyncio.to_thread(
+                _parse_repository_files, repo_path
+            )
 
-            for f_info in files[:200]:
-                rel_path = f_info["path"]
-                if not parser_registry.get_parser(rel_path):
-                    continue
-                try:
-                    src = (repo_path / rel_path).read_text(encoding="utf-8", errors="replace")
-                    res = parser_registry.parse_file(rel_path, src)
-                    if res:
-                        all_symbols.extend([{"name": s.name, "type": s.type, "file_path": s.file_path, "line_start": s.line_start, "line_end": s.line_end, "signature": s.signature, "parent": s.parent, "visibility": s.visibility} for s in res.symbols])
-                        all_imports.extend([{"module": imp.module, "name": imp.name, "file_path": res.file_path} for imp in res.imports])
-                except Exception:
-                    pass
-
-            new_arch = analyze_architecture(files, all_symbols, all_imports, repo.languages or [])
+            new_arch = await asyncio.to_thread(
+                analyze_architecture, files, all_symbols, all_imports, repo.languages or []
+            )
             if job:
                 new_summary = dict(job.results_summary or {})
                 new_summary["architecture"] = new_arch
@@ -242,38 +282,18 @@ async def get_database(repo_id: UUID, db: AsyncSession = Depends(get_db)):
 
     # On-the-fly regeneration if missing or tables empty and clone path exists
     has_tables = bool(db_data and db_data.get("tables"))
-    if not has_tables and repo.clone_path and Path(repo.clone_path).exists():
+    if _analytics_enabled(repo, "database") and not has_tables and repo.clone_path and Path(repo.clone_path).exists():
         try:
             from app.analysis.database_intel import analyze_database
-            from app.parsing.registry import parser_registry
-            from app.tasks.clone import enumerate_files
 
             repo_path = Path(repo.clone_path)
-            files = enumerate_files(repo_path)
-            all_symbols = []
-            all_imports = []
+            files, all_symbols, all_imports = await asyncio.to_thread(
+                _parse_repository_files, repo_path
+            )
 
-            for file_info in files:
-                rel_path = file_info["path"]
-                if not parser_registry.get_parser(rel_path) or file_info.get("size_bytes", 0) > 1_000_000:
-                    continue
-                abs_path = repo_path / rel_path
-                try:
-                    source = abs_path.read_text(encoding="utf-8", errors="replace")
-                    res = parser_registry.parse_file(rel_path, source)
-                    if res:
-                        all_symbols.extend([
-                            {"name": s.name, "type": s.type, "file_path": s.file_path, "signature": s.signature, "parent": s.parent}
-                            for s in res.symbols
-                        ])
-                        all_imports.extend([
-                            {"module": imp.module, "name": imp.name, "file_path": res.file_path}
-                            for imp in res.imports
-                        ])
-                except Exception:
-                    pass
-
-            new_db = analyze_database(files, all_symbols, all_imports)
+            new_db = await asyncio.to_thread(
+                analyze_database, files, all_symbols, all_imports
+            )
             if job:
                 new_summary = dict(job.results_summary or {})
                 new_summary["database"] = new_db
@@ -324,38 +344,18 @@ async def get_dependencies(repo_id: UUID, db: AsyncSession = Depends(get_db)):
 
     # On-the-fly regeneration if missing or service_graph is empty and clone path exists
     service_nodes = (dep_data.get("service_graph") or {}).get("nodes", []) if dep_data else []
-    if (not dep_data or not service_nodes) and repo.clone_path and Path(repo.clone_path).exists():
+    if _analytics_enabled(repo, "dependencies") and (not dep_data or not service_nodes) and repo.clone_path and Path(repo.clone_path).exists():
         try:
             from app.analysis.dependency_intel import analyze_dependencies
-            from app.parsing.registry import parser_registry
-            from app.tasks.clone import enumerate_files
 
             repo_path = Path(repo.clone_path)
-            files = enumerate_files(repo_path)
-            all_imports = []
+            files, _, all_imports = await asyncio.to_thread(
+                _parse_repository_files, repo_path, False
+            )
 
-            for file_info in files:
-                rel_path = file_info["path"]
-                if not parser_registry.get_parser(rel_path) or file_info.get("size_bytes", 0) > 1_000_000:
-                    continue
-                abs_path = repo_path / rel_path
-                try:
-                    source = abs_path.read_text(encoding="utf-8", errors="replace")
-                    res = parser_registry.parse_file(rel_path, source)
-                    if res:
-                        all_imports.extend([
-                            {
-                                "module": imp.module,
-                                "name": imp.name,
-                                "file_path": res.file_path,
-                                "is_relative": getattr(imp, "is_relative", False),
-                            }
-                            for imp in res.imports
-                        ])
-                except Exception:
-                    pass
-
-            new_deps = analyze_dependencies(str(repo_path), files, all_imports)
+            new_deps = await asyncio.to_thread(
+                analyze_dependencies, str(repo_path), files, all_imports
+            )
             if job:
                 new_summary = dict(job.results_summary or {})
                 new_summary["dependencies"] = new_deps

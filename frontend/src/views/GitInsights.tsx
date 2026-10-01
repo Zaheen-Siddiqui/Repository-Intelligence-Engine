@@ -1,4 +1,5 @@
-import { GitCommit, Users, Flame, TrendingUp } from 'lucide-react';
+import { useRef } from 'react';
+import { GitCommit, Users, Flame, TrendingUp, Download } from 'lucide-react';
 import {
   XAxis,
   YAxis,
@@ -14,9 +15,11 @@ import DataShell from '../components/DataShell';
 import { useCurrentRepoId, useApi } from '../hooks/useRepository';
 import type { GitInsightsResponse } from '../types/api';
 import { repositoryApi } from '../lib/api';
+import { exportElementAsPng } from '../lib/exportImage';
 
 export default function GitInsights() {
   const repoId = useCurrentRepoId();
+  const chartRef = useRef<HTMLDivElement>(null);
   const { data, loading, error, refetch: _refetch } = useApi<GitInsightsResponse>(
     repoId,
     repositoryApi.getGitInsights,
@@ -38,6 +41,12 @@ export default function GitInsights() {
     ? Math.max(...hotspotFiles.map((h: any) => h.changes))
     : 1;
   const avgPerWeek = data && data.total_commits ? Math.round(data.total_commits / 52) : 0;
+
+  const handleExportChart = async () => {
+    if (chartRef.current) {
+      await exportElementAsPng(chartRef.current, 'commit-frequency.png');
+    }
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -106,8 +115,18 @@ export default function GitInsights() {
 
           {/* Commit Frequency Chart */}
           {commitChartData.length > 0 && (
-            <div className="glass-card p-6">
-              <h3 className="text-lg font-semibold mb-4">Commit Frequency</h3>
+            <div ref={chartRef} className="glass-card p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Commit Frequency</h3>
+                <button
+                  data-export-exclude="true"
+                  onClick={() => void handleExportChart()}
+                  className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-white hover:bg-white/[0.08]"
+                  title="Save chart as PNG"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+              </div>
               <ResponsiveContainer width="100%" height={250}>
                 <AreaChart data={commitChartData}>
                   <defs>

@@ -16,15 +16,19 @@ import { RepositoryProvider } from './contexts/RepositoryContext';
 import { ModalProvider, useModal } from './contexts/ModalContext';
 import { repositoryApi } from './lib/api';
 import { useRepositoryContext } from './contexts/useRepositoryContext';
+import type { AnalyticsKey } from './types/api';
 import './index.css';
 
 function AppLayout() {
   const { isRepositoryModalOpen, closeRepositoryModal } = useModal();
   const { setRepo } = useRepositoryContext();
 
-  const handleAddRepo = async (url: string) => {
+  const handleAddRepo = async (url: string, analytics: AnalyticsKey[]) => {
     try {
-      const { data } = await repositoryApi.create({ github_url: url.trim() });
+      const { data } = await repositoryApi.create({
+        github_url: url.trim(),
+        analytics,
+      });
       setRepo(data);
     } catch (err) {
       console.error('Failed to add repository:', err);

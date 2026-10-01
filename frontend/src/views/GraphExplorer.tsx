@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import cytoscape from 'cytoscape';
-import { Maximize, ZoomIn, ZoomOut, RotateCcw, Search } from 'lucide-react';
+import { Maximize, ZoomIn, ZoomOut, RotateCcw, Search, Download } from 'lucide-react';
 
 import NoRepository from '../components/NoRepository';
 import DataShell from '../components/DataShell';
 import { useCurrentRepoId, useApi } from '../hooks/useRepository';
 import type { GraphResponse } from '../types/api';
 import { repositoryApi } from '../lib/api';
+import { downloadBlob } from '../lib/exportImage';
 
 const nodeColorConfig: Record<string, { border: string; bg: string }> = {
   Repository: { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.3)' },
@@ -366,6 +367,17 @@ export default function GraphExplorer() {
     }
   };
 
+  const handleExport = () => {
+    if (!cyRef.current) return;
+    const image = cyRef.current.png({
+      output: 'blob',
+      full: true,
+      bg: '#090d16',
+      scale: 2,
+    }) as Blob;
+    downloadBlob(image, 'knowledge-graph.png');
+  };
+
   if (!repoId && !loading && !data) {
     return <NoRepository />;
   }
@@ -491,6 +503,14 @@ export default function GraphExplorer() {
               style={{ border: 'none' }}
             >
               <RotateCcw className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleExport}
+              title="Save graph as PNG"
+              className="p-1.5 rounded-lg bg-[var(--bg-primary)] hover:bg-[var(--border-color)] text-[var(--text-secondary)] transition-colors border-none"
+              style={{ border: 'none' }}
+            >
+              <Download className="w-4 h-4" />
             </button>
           </div>
         </div>

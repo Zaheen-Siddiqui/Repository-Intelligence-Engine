@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -27,6 +27,7 @@ import {
   Check,
   List,
   Network,
+  Download,
 } from 'lucide-react';
 
 import NoRepository from '../components/NoRepository';
@@ -34,6 +35,7 @@ import DataShell from '../components/DataShell';
 import { useCurrentRepoId, useApi } from '../hooks/useRepository';
 import type { DatabaseResponse, DatabaseTable, DatabaseColumn } from '../types/api';
 import { repositoryApi } from '../lib/api';
+import { exportElementAsPng } from '../lib/exportImage';
 
 // ── Custom Entity Node ───────────────────────────────────────
 
@@ -168,6 +170,7 @@ function ERCanvas({
   onSelectTable: (table: DatabaseTable) => void;
 }) {
   const [searchTerm, setSearchTerm] = useState('');
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   // Build clean React Flow nodes
   const initialNodes: Node[] = useMemo(() => {
@@ -295,10 +298,16 @@ function ERCanvas({
     [onSelectTable]
   );
 
+  const handleExport = async () => {
+    if (canvasRef.current) {
+      await exportElementAsPng(canvasRef.current, 'database-er-diagram.png');
+    }
+  };
+
   return (
-    <div className="relative w-full h-[640px] rounded-xl border border-[var(--border-subtle)] bg-[#070b13] overflow-hidden shadow-inner">
+    <div ref={canvasRef} className="relative w-full h-[640px] rounded-xl border border-[var(--border-subtle)] bg-[#070b13] overflow-hidden shadow-inner">
       {/* Search & Actions Toolbar */}
-      <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
+      <div data-export-exclude="true" className="absolute top-3 left-3 z-10 flex items-center gap-2">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]" />
           <input
@@ -318,6 +327,13 @@ function ERCanvas({
             </button>
           )}
         </div>
+        <button
+          onClick={() => void handleExport()}
+          className="h-8 w-8 flex items-center justify-center rounded-lg bg-[#0d131f]/90 border border-[rgba(255,255,255,0.1)] text-[var(--text-muted)] hover:text-white"
+          title="Save graph as PNG"
+        >
+          <Download className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       <ReactFlow

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -26,6 +26,7 @@ import {
   ArrowRight,
   ShieldAlert,
   Layers,
+  Download,
 } from 'lucide-react';
 
 import NoRepository from '../components/NoRepository';
@@ -33,6 +34,7 @@ import DataShell from '../components/DataShell';
 import { useCurrentRepoId, useApi } from '../hooks/useRepository';
 import type { DependencyResponse, DependencyNode as PackageItem } from '../types/api';
 import { repositoryApi } from '../lib/api';
+import { exportElementAsPng } from '../lib/exportImage';
 
 const typeColors: Record<string, string> = {
   runtime: 'var(--accent-green)',
@@ -147,6 +149,7 @@ function ServiceGraphCanvas({
   onSelectNode: (nodeId: string) => void;
 }) {
   const [searchTerm, setSearchTerm] = useState('');
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   const initialNodes: Node[] = useMemo(() => {
     return rawNodes.map((n, idx) => {
@@ -219,9 +222,15 @@ function ServiceGraphCanvas({
     [onSelectNode]
   );
 
+  const handleExport = async () => {
+    if (canvasRef.current) {
+      await exportElementAsPng(canvasRef.current, 'dependency-graph.png');
+    }
+  };
+
   return (
-    <div className="relative w-full h-[620px] rounded-xl border border-[var(--border-subtle)] bg-[#070b13] overflow-hidden shadow-inner">
-      <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
+    <div ref={canvasRef} className="relative w-full h-[620px] rounded-xl border border-[var(--border-subtle)] bg-[#070b13] overflow-hidden shadow-inner">
+      <div data-export-exclude="true" className="absolute top-3 left-3 z-10 flex items-center gap-2">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]" />
           <input
@@ -247,6 +256,13 @@ function ServiceGraphCanvas({
             {circularDeps.length} Cycle{circularDeps.length > 1 ? 's' : ''} Detected
           </span>
         )}
+        <button
+          onClick={() => void handleExport()}
+          className="h-8 w-8 flex items-center justify-center rounded-lg bg-[#0d131f]/90 border border-[rgba(255,255,255,0.1)] text-[var(--text-muted)] hover:text-white"
+          title="Save graph as PNG"
+        >
+          <Download className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       <ReactFlow

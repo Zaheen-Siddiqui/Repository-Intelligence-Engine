@@ -1,10 +1,22 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Loader2, AlertCircle, CheckCircle2, FolderOpen } from 'lucide-react';
+import type { AnalyticsKey } from '../types/api';
+
+const ANALYTICS_OPTIONS: Array<{ key: AnalyticsKey; label: string; description: string }> = [
+  { key: 'architecture', label: 'Architecture', description: 'Layers and component relationships' },
+  { key: 'apis', label: 'API discovery', description: 'REST, GraphQL, gRPC, and WebSocket endpoints' },
+  { key: 'database', label: 'Database intelligence', description: 'Tables, relationships, and migrations' },
+  { key: 'dependencies', label: 'Dependencies', description: 'Packages and service relationships' },
+  { key: 'git', label: 'Git history', description: 'Commits, contributors, and hotspots' },
+  { key: 'security', label: 'Security', description: 'Security findings and risk scoring' },
+  { key: 'performance', label: 'Performance', description: 'Potential performance issues' },
+  { key: 'tech_debt', label: 'Technical debt', description: 'Maintainability and remediation items' },
+];
 
 interface RepositoryModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (url: string) => Promise<void>;
+  onSubmit: (url: string, analytics: AnalyticsKey[]) => Promise<void>;
 }
 
 export const RepositoryModal: React.FC<RepositoryModalProps> = ({
@@ -16,6 +28,9 @@ export const RepositoryModal: React.FC<RepositoryModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isValid, setIsValid] = useState<boolean | null>(null);
+  const [selectedAnalytics, setSelectedAnalytics] = useState<AnalyticsKey[]>(
+    ANALYTICS_OPTIONS.map((option) => option.key),
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -89,9 +104,10 @@ export const RepositoryModal: React.FC<RepositoryModalProps> = ({
     setError(null);
 
     try {
-      await onSubmit(url);
+      await onSubmit(url, selectedAnalytics);
       setUrl('');
       setIsValid(null);
+      setSelectedAnalytics(ANALYTICS_OPTIONS.map((option) => option.key));
       onClose();
     } catch (err: unknown) {
       let msg = err instanceof Error ? err.message : 'Failed to add repository';
@@ -123,7 +139,7 @@ export const RepositoryModal: React.FC<RepositoryModalProps> = ({
       {/* Modal */}
       <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-2xl lg:max-w-[720px] -translate-x-1/2 -translate-y-1/2 p-6">
         <div
-          className="glass-card p-10 lg:p-12 space-y-8 rounded-3xl bg-[#171b24]/98 border border-white/15 shadow-2xl backdrop-blur-2xl animate-fade-in-up"
+          className="glass-card max-h-[calc(100vh-3rem)] overflow-y-auto overscroll-contain p-10 lg:p-12 space-y-8 rounded-3xl bg-[#171b24]/98 border border-white/15 shadow-2xl backdrop-blur-2xl animate-fade-in-up"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -213,6 +229,51 @@ export const RepositoryModal: React.FC<RepositoryModalProps> = ({
                 </p>
               )}
             </div>
+
+            {/* Help Text */}
+            <fieldset className="space-y-3">
+              <legend className="block text-xs font-semibold uppercase tracking-wider text-gray-300">
+                Analytics to run
+              </legend>
+              <p className="text-xs text-gray-400">
+                Uncheck analyses you do not need to reduce scan time.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {ANALYTICS_OPTIONS.map((option) => {
+                  const checked = selectedAnalytics.includes(option.key);
+                  return (
+                    <label
+                      key={option.key}
+                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                        checked
+                          ? 'border-amber-500/40 bg-amber-500/10'
+                          : 'border-white/10 bg-black/10 hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setSelectedAnalytics((current) =>
+                            checked
+                              ? current.filter((key) => key !== option.key)
+                              : [...current, option.key],
+                          );
+                        }}
+                        disabled={isLoading || (checked && selectedAnalytics.length === 1)}
+                        className="mt-0.5 accent-amber-500"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-gray-200">{option.label}</span>
+                        <span className="block mt-0.5 text-[11px] leading-relaxed text-gray-500">
+                          {option.description}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
 
             {/* Help Text */}
             <div className="p-5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200/90 leading-relaxed flex items-center gap-3.5">
