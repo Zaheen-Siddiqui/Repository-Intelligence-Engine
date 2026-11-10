@@ -224,7 +224,9 @@ async def get_architecture(repo_id: UUID, db: AsyncSession = Depends(get_db)):
     nodes = diagram.get("nodes", [])
     is_legacy = len(nodes) <= 3 or any(n.get("type") != "componentNode" for n in nodes)
 
-    if _analytics_enabled(repo, "architecture") and (not arch_data or is_legacy) and repo.clone_path and Path(repo.clone_path).exists():
+    scan_complete = bool(job and job.status == ScanStatus.COMPLETED)
+
+    if scan_complete and _analytics_enabled(repo, "architecture") and (not arch_data or is_legacy) and repo.clone_path and Path(repo.clone_path).exists():
         try:
             from app.tasks.clone import enumerate_files
             from app.analysis.architecture import analyze_architecture
@@ -282,7 +284,8 @@ async def get_database(repo_id: UUID, db: AsyncSession = Depends(get_db)):
 
     # On-the-fly regeneration if missing or tables empty and clone path exists
     has_tables = bool(db_data and db_data.get("tables"))
-    if _analytics_enabled(repo, "database") and not has_tables and repo.clone_path and Path(repo.clone_path).exists():
+    scan_complete = bool(job and job.status == ScanStatus.COMPLETED)
+    if scan_complete and _analytics_enabled(repo, "database") and not has_tables and repo.clone_path and Path(repo.clone_path).exists():
         try:
             from app.analysis.database_intel import analyze_database
 
@@ -344,7 +347,8 @@ async def get_dependencies(repo_id: UUID, db: AsyncSession = Depends(get_db)):
 
     # On-the-fly regeneration if missing or service_graph is empty and clone path exists
     service_nodes = (dep_data.get("service_graph") or {}).get("nodes", []) if dep_data else []
-    if _analytics_enabled(repo, "dependencies") and (not dep_data or not service_nodes) and repo.clone_path and Path(repo.clone_path).exists():
+    scan_complete = bool(job and job.status == ScanStatus.COMPLETED)
+    if scan_complete and _analytics_enabled(repo, "dependencies") and (not dep_data or not service_nodes) and repo.clone_path and Path(repo.clone_path).exists():
         try:
             from app.analysis.dependency_intel import analyze_dependencies
 
